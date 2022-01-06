@@ -1,0 +1,103 @@
+﻿@page "/raw"
+@using BlazorWorker.Core
+@using BlazorWorker.WorkerCore
+@using NVerilogFormatter
+@using BlazorWorker.BackgroundServiceFactory
+@inject IWorkerFactory workerFactory
+
+<textarea id="Raw" @bind="RawText" @ref="RawRef" cols="150" rows="20">
+</textarea>
+<br />
+<br />
+<button class="btn btn-primary" @onclick="Format">Format</button>
+<br />
+<input id="Progress" @bind="ProgressText" />
+<br />
+
+<textarea id="Formatted" @bind="FormattedText" @ref="FormattedRef" cols="150" rows="20">
+</textarea>
+<br />
+
+
+@code {
+    public class FormatTask
+    {
+        public HttpClient HttpClient  { get; }
+
+        public IWorkerMessageService MessageService { get; }
+
+        public FormatTask(HttpClient httpClient, IWorkerMessageService messageService)
+        {
+            HttpClient = httpClient;
+            MessageService = messageService;
+        }
+
+        public async Task<string> Format(string rawText)
+        {
+            var formatter = RawFormatterFactory.Create();
+            Func<string, Task<string>> fileProvider = (string fileName) =>
+            {
+                fileName = fileName.Trim('"');
+                return HttpClient.GetStringAsync($"https://localhost:44384/{fileName}");
+            };
+
+            return await formatter.Format(rawText, fileProvider, (progress) => MessageService.PostMessageAsync("Progress:" + progress));
+        }
+    }
+
+    string RawText = "";
+    string FormattedText = "";
+    string ProgressText = "0/0";
+
+
+    ElementReference RawRef;
+    ElementReference FormattedRef;
+
+    private async Task Format()
+    {
+        // Create worker.
+        var worker = await workerFactory.CreateAsync();
+        worker.IncomingMessage += this.OnWorkerMessage;
+
+        // Create service reference. For most scenarios, it's safe (and best) to keep this 
+        // reference around somewhere to avoid the startup cost.
+        var service = await worker.CreateBackgroundServiceAsync<FormatTask>(options =>
+                    options
+                    .AddAssemblies("Microsoft.AspNetCore.Components.dll", "Microsoft.AspNetCore.Components")
+                    .AddAssemblies("BlazorWorker.Core.dll", "BlazorWorker.Core")
+                    .AddAssemblies("System.Net.Http.dll", "System.Net.Http")
+                    .AddAssemblies("System.Net.Primitives.dll", "System.Net.Primitives")
+                    .AddAssemblies("System.Security.Cryptography.X509Certificates.dll", "System.Security.Cryptography.X509Certificates")
+                    .AddAssemblies("System.Diagnostics.Tracing.dll", "System.Diagnostics.Tracing")
+                    .AddAssemblies("NVerilogFormatter.dll", "NVerilogFormatter")
+                    .AddAssemblies("NVerilogParser.dll", "NVerilogParser")
+                    .AddAssemblies("CFGToolkit.AST.dll", "CFGToolkit.AST")
+                    .AddAssemblies("CFGToolkit.Lexer.dll", "CFGToolkit.Lexer")
+                    .AddAssemblies("CFGToolkit.ParserCombinator.dll", "CFGToolkit.ParserCombinator")
+                    .AddAssemblies("NPreprocessor.dll", "NPreprocessor")
+                    .AddAssemblies("System.Net.Security.dll", "System.Net.Security")
+                    .AddConventionalAssemblyOfService()
+                    .AddHttpClient());
+
+        // Reference that live outside of the current scope should not be passed into the expression.
+        // To circumvent this, create a scope-local variable like this, and pass the local variable.
+        var rawText = RawText;
+
+
+        FormattedText = await service.RunAsync(s => s.Format(rawText));
+    }
+
+    private void Update(string progress)
+    {
+        ProgressText = progress;
+    }
+
+    public void OnWorkerMessage(object sender, string message)
+    {
+        if (message.StartsWith($"Progress:"))
+        {
+            Update(message);
+            StateHasChanged();
+        }
+    }
+}
