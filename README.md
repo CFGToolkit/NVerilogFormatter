@@ -1,2 +1,2 @@
 # -NVerilogFormatter
-A library to format/indent/beautify Verilog-(A/AMS) source code
+A library to format/indent/beautify Verilog-AMS source code
