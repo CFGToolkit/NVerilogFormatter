@@ -4,12 +4,10 @@ namespace NVerilogFormatter
 {
     public class RawFormatterContext
     {
-        public int CurrentLevel { get; set; }
+        public List<RawFormatterLine> Lines { get; set; }
 
-        public List<string> Lines { get; set; }
+        public RawFormatterLine CurrentLine => Lines[Lines.Count - 1];
 
-        public SyntaxNode IdentNode { get; set; }
-
-        public bool DisableSpaces { get; set; }
+        public Dictionary<ISyntaxElement, int> Indents { get; set; } = new Dictionary<ISyntaxElement, int>();
     }
 }

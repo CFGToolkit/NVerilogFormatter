@@ -5,216 +5,310 @@ namespace NVerilogFormatter
 {
     public class RawFormatterFactory
     {
-        public const int IdentLevel = 4;
+        public const int IdentStep = 4;
 
         public static RawFormatter Create()
         {
-            var beforeActions = new List<Action<RawFormatterContext, ISyntaxElement>>();
+            string[] emptyLineBefore = new string[]
+              {
+                "always_construct",
+                "initial_construct",
+                "analog_construct",
+                "if_generate_construct",
+                "loop_generate_construct"
+              };
+
+            string[] emptyLinesAfterNodes = new string[]
+            {
+                "nature_declaration",
+                "discipline_declaration",
+                "module_declaration",
+            };
+
+            string[] lineBreakAfterNodes = new string[]
+            {
+                "analog_event_control",
+                "event_control",
+                "analog_construct",
+                "seq_block",
+                "analog_function_seq_block",
+                "analog_event_seq_block",
+                "analog_seq_block",
+                "if_generate_construct",
+
+                "analog_function_seq_block_optional",
+                "analog_event_seq_block_optional",
+                "analog_seq_block_optional",
+                "seq_block_optional",
+                "par_block_optional",
+                "if_generate_construct"
+            };
+            string[] noSpacesParents = new string[] { "branch_probe_function_call" };
+
+            var beforeActions = new List<Func<RawFormatterContext, ISyntaxElement, bool>>();
+
+            var identedNodes = new List<(string node, string idented, Func<SyntaxNode, bool> condition)>();
+            identedNodes.Add(("procedural_timing_control_statement", "statement_or_null", null));
+            identedNodes.Add(("nature_declaration", "nature_item", null));
+            identedNodes.Add(("discipline_declaration", "discipline_item", null));
+            identedNodes.Add(("module_declaration", "module_item", null));
+            identedNodes.Add(("module_declaration", "non_port_module_item", null));
+
+            identedNodes.Add(("seq_block", "statement", null));
+            identedNodes.Add(("analog_function_seq_block", "analog_function_statement", null));
+            identedNodes.Add(("analog_event_seq_block", "analog_event_statement", null));
+            identedNodes.Add(("analog_seq_block", "analog_statement", null));
+
+            identedNodes.Add(("conditional_statement", "statement_or_null", null));
+            
+            identedNodes.Add(("analog_conditional_statement", "analog_statement_or_null", null));
+            identedNodes.Add(("if_generate_construct", "generate_block_or_null", null));
+            identedNodes.Add(("if_generate_construct_else", "generate_block_or_null", null));
+            identedNodes.Add(("loop_generate_construct", "generate_block", null));
+            identedNodes.Add(("generate_block", "module_or_generate_item", (SyntaxNode node) => { return node.Children.Any(d => d is SyntaxToken t && t.Value == "begin"); }));
+
+
+            var inNewLine = new List<string>();
+            inNewLine.Add("statement_or_null");
+            inNewLine.Add("analog_statement_or_null");
+
             beforeActions.Add((context, element) =>
             {
                 if (element is SyntaxNode node)
                 {
-                    if (node.Name == "statement" && node.Parent.Name == "always_construct")
+                    if (!context.Indents.ContainsKey(node))
                     {
-                        context.CurrentLevel += IdentLevel;
+                        context.Indents[node] = 0;
                     }
 
-                    if (node.Name == "number")
+                    if (emptyLineBefore.Contains(node.Name))
                     {
-                        context.DisableSpaces = true;
+                        CreateNewLine(context, node);
                     }
-                    else if (node.Name == "nature_declaration")
+
+                    if (inNewLine.Contains(node.Name))
                     {
-                        context.CurrentLevel += IdentLevel;
-                        context.IdentNode = node;
+                        BreakIfNecessary(context, element);
                     }
-                    else if (node.Name == "discipline_declaration")
+
+                    foreach (var definition in identedNodes.Where(item => item.node == node.Name))
                     {
-                        context.CurrentLevel += IdentLevel;
-                        context.IdentNode = node;
-                    }
-                    else if (node.Name == "module_declaration")
-                    {
-                        context.CurrentLevel += IdentLevel;
-                        context.IdentNode = node;
-                    }
-                    else if (node.Name == "wait_statement")
-                    {
-                        context.CurrentLevel += IdentLevel;
+                        if (definition.condition != null)
+                        {
+                            if (!definition.condition(node))
+                            {
+                                continue;
+                            }
+                        }
+                        foreach (var i in node.GetNodes(definition.idented, 3))
+                        {
+                            if (!context.Indents.ContainsKey(i))
+                            {
+                                context.Indents[i] = 0;
+                            }
+                            context.Indents[i] = IdentStep;
+                        }
                     }
                 }
-            });
-            beforeActions.Add((context, element) =>
-            {
+
                 if (element is SyntaxToken token)
                 {
-                    if (token.Value == "always")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
-                    }
-                    if (token.Value == "endmodule")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                    }
-                    if (token.Value == "begin")
-                    {
-                        if (!string.IsNullOrWhiteSpace(context.Lines[context.Lines.Count - 1]))
-                        {
-                            context.Lines.Add(Environment.NewLine);
-                            context.Lines.Add("");
-                        }
+                    UpdateIdent(context, token.Parent, false);
 
-                        context.CurrentLevel += IdentLevel;
+                    var addSpaces = new string[] { "/", "begin", "<+" };
 
-                        for (var i = 0; i < context.CurrentLevel; i++)
+                    if (addSpaces.Contains(token.Value))
+                    {
+                        if (!context.CurrentLine.Text.EndsWith(" ") && !string.IsNullOrEmpty(context.CurrentLine.Text))
                         {
-                            context.Lines[context.Lines.Count - 1] += " ";
+                            context.CurrentLine.Text += " ";
                         }
                     }
-                    else if (token.Value == "end")
+
+                    if ((token.Value == "[" || token.Value == "]"))                     
                     {
-                        context.Lines.Add("");
-
-                        context.CurrentLevel -= IdentLevel;
-
-                        for (var i = 0; i < context.CurrentLevel; i++)
+                        if (token.Parent.Name != "value_range")
                         {
-                            context.Lines[context.Lines.Count - 1] += " ";
+                            context.CurrentLine.Text = context.CurrentLine.Text.TrimEnd();
                         }
+
+                        return true;
                     }
-                    else if (context.Lines[context.Lines.Count - 1] == "")
+
+                    if (token.Value == ";" || token.Value == ",")
                     {
-                        if (context.IdentNode?.GetFirstToken() == token
-                        || context.IdentNode?.GetTokens().LastOrDefault() == token)
-                        {
-                            return;
-                        }
-
-                        for (var i = 0; i < context.CurrentLevel; i++)
-                        {
-                            context.Lines[context.Lines.Count - 1] += " ";
-                        }
-                    }
-                    else
-                    {
-                        if (token.Value == ","
-                            || token.Value == ":"
-                            || token.Value == "!"
-                            || token.Value == "["
-                            || token.Value == "]"
-                            || token.Value == "="
-                            || token.Value == ";"
-                            || token.Value == "("
-                            || token.Value == ")")
-                        {
-                            return;
-                        }
-
-                        if (context.Lines[context.Lines.Count - 1].EndsWith("(")
-                            || context.Lines[context.Lines.Count - 1].EndsWith("!"))
-                        {
-                            return;
-                        }
-
-
-                        if (!context.DisableSpaces && !context.Lines[context.Lines.Count - 1].EndsWith(" "))
-                        {
-                            context.Lines[context.Lines.Count - 1] += " ";
-                        }
+                        context.CurrentLine.Text = context.CurrentLine.Text.TrimEnd();
+                        return true;
                     }
                 }
+
+                return false;
             });
 
-            var afterActions = new List<Action<RawFormatterContext, ISyntaxElement>>();
+            var afterActions = new List<Func<RawFormatterContext, ISyntaxElement, bool>>();
 
+           
             afterActions.Add((context, element) =>
             {
+                if (emptyLinesAfterNodes.Contains(element.Name))
+                {
+                    EnsureLines(context, element, 2);
+                }
+
+                if (lineBreakAfterNodes.Contains(element.Name))
+                {
+                    EnsureLines(context, element, 1);
+                }
+
                 if (element is SyntaxNode node)
                 {
-                    if (node.Name == "statement" && node.Parent.Name == "always_construct")
+                    if (GetNodeTokenize(node) && !HasParent(noSpacesParents, node))
                     {
-                        context.CurrentLevel -= IdentLevel;
-                    }
-
-                    if (node.Name == "number")
-                    {
-                        context.DisableSpaces = false;
-                    }
-                    else if (node.Name == "nature_declaration")
-                    {
-                        context.CurrentLevel -= IdentLevel;
-                    }
-                    else if (node.Name == "discipline_declaration")
-                    {
-                        context.CurrentLevel -= IdentLevel;
-                    }
-                    else if (node.Name == "module_declaration")
-                    {
-                        context.CurrentLevel -= IdentLevel;
-                    }
-                    else if (node.Name == "analog_construct")
-                    {
-                        context.CurrentLevel -= IdentLevel;
-                    }
-
-                    if (node.Name == "event_control")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
-                    }
-
-                    if (node.Name == "analog_event_control")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
+                        AddSpace(context.CurrentLine);
                     }
                 }
-            });
 
-            afterActions.Add((context, element) =>
-            {
-                if (element is SyntaxToken t2)
+                if (element is SyntaxToken token)
                 {
-                    context.Lines[context.Lines.Count - 1] += t2.Value;
+                    context.CurrentLine.Text += token.Value;
 
-                    if (t2.Value == ";")
+                    var parent = token.Parent as SyntaxNode;
+                    // new line after ;
+                    if (token.Value == ";"
+                        && (parent.Name != "analog_loop_statement"
+                            && parent.Name != "analog_function_statement_loop_statement"
+                            && parent.Name != "loop_statement")
+                            && parent.Name != "loop_generate_construct"
+                            && parent.Name != "analog_loop_generate_statement")
                     {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
+                        CreateNewLine(context, token);
+                        return true;
                     }
 
-                    if (t2.Value == "enddiscipline" || t2.Value == "endnature" || t2.Value == "endmodule")
+                    if (token.Value == "begin")
                     {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
+                        var tokens = parent.GetTokens();
+                        var tokenIndex = tokens.IndexOf(token);
+                        var nextToken = tokens[tokenIndex + 1];
+
+                        if (nextToken.Value == ":")
+                        {
+                            return true;
+                        }
+
+                        CreateNewLine(context, token);
+                        return true;
                     }
 
-                    if (t2.Value == "end")
+                    if (token.Value == "end")
                     {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
-                        context.CurrentLevel -= IdentLevel;
+                        CreateNewLine(context, token);
+                        return true;
+                    }
+                    string[] addSpaces = new string[] { "if", "for", "<+" };
+
+                    var addSpaceAfterToken = !HasParent(noSpacesParents, token) && (GetTokenTokenize((SyntaxNode)token.Parent) || addSpaces.Contains(token.Value)) && (!context.CurrentLine.Text.EndsWith("[") || token.Parent.Name == "value_range");
+
+                    if (addSpaceAfterToken)
+                    {
+                        AddSpace(context.CurrentLine);
                     }
 
-                    if (t2.Value == "begin")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
-                        context.CurrentLevel += IdentLevel;
-                    }
-
-                    if (t2.Value == "analog")
-                    {
-                        context.Lines.Add(Environment.NewLine);
-                        context.Lines.Add("");
-                        context.CurrentLevel += IdentLevel;
-                    }
+                    return true;
                 }
+
+                return false;
             });
 
             return new RawFormatter(beforeActions, afterActions);
+        }
+
+        private static bool HasParent(string[] parents, ISyntaxElement element)
+        {
+            ISyntaxElement tmp = element;
+            while (tmp != null)
+            {
+                if (tmp != element && parents.Contains(tmp.Name))
+                {
+                    return true;
+                }
+
+                tmp = tmp.Parent;
+            }
+
+            return false;
+        }
+
+        private static void UpdateIdent(RawFormatterContext context, ISyntaxElement element, bool force)
+        {
+            var level = GetIdentLevel(context, element);
+            if (string.IsNullOrWhiteSpace(context.CurrentLine.Text))
+            {
+                context.CurrentLine.IdentLevel = level;
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(context.CurrentLine.Text) && context.CurrentLine.IdentLevel != level)
+                {
+                    context.Lines.Add(new RawFormatterLine { IdentLevel = level });
+                }
+            }
+        }
+
+        private static void CreateNewLine(RawFormatterContext context, ISyntaxElement element)
+        {
+            var level = GetIdentLevel(context, element);
+            context.Lines.Add(new RawFormatterLine() { IdentLevel = level });
+        }
+        private static void EnsureLines(RawFormatterContext context, ISyntaxElement element, int count)
+        {
+            if (string.IsNullOrWhiteSpace(context.CurrentLine.Text))
+            {
+                count--;
+            }
+            for (var i = 0; i < count; i++)
+            {
+                CreateNewLine(context, element);
+            }
+        }
+
+        private static void BreakIfNecessary(RawFormatterContext context, ISyntaxElement element)
+        {
+            if (!string.IsNullOrWhiteSpace(context.CurrentLine.Text))
+            {
+                var level = GetIdentLevel(context, element);
+
+                context.Lines.Add(new RawFormatterLine() { IdentLevel = level });
+            }
+        }
+        
+        private static int GetIdentLevel(RawFormatterContext context, ISyntaxElement node)
+        {
+            int totalIdent = 0;
+            while (node != null)
+            {
+                totalIdent += context.Indents.ContainsKey(node) ? context.Indents[node] : 0;
+                node = node.Parent;
+            }
+
+            return totalIdent;
+        }
+
+        private static void AddSpace(RawFormatterLine currentLine)
+        {
+            if (!string.IsNullOrWhiteSpace(currentLine.Text) && !currentLine.Text.EndsWith(' '))
+            {
+                currentLine.Text += " ";
+            }
+        }
+        private static bool GetNodeTokenize(SyntaxNode node)
+        {
+            return node.Attributes.ContainsKey("nodeTokenize") && node.Attributes["nodeTokenize"] == "true";
+        }
+
+        private static bool GetTokenTokenize(SyntaxNode node)
+        {
+            return node.Attributes.ContainsKey("tokenTokenize") && node.Attributes["tokenTokenize"] == "true";
         }
     }
 }

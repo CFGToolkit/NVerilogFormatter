@@ -1,18 +1,20 @@
 ﻿using CFGToolkit.AST;
+using CFGToolkit.AST.Algorithms.TreeVisitors;
+using CFGToolkit.AST.Providers;
 
 namespace NVerilogFormatter
 {
     public class RawFormatter : IFormatter
     {
-        public RawFormatter(List<Action<RawFormatterContext, ISyntaxElement>> beforeActions, List<Action<RawFormatterContext, ISyntaxElement>> afterActions)
+        public RawFormatter(List<Func<RawFormatterContext, ISyntaxElement, bool>> beforeActions, List<Func<RawFormatterContext, ISyntaxElement, bool>> afterActions)
         {
             BeforeActions = beforeActions;
             AfterActions = afterActions;
         }
 
-        public List<Action<RawFormatterContext, ISyntaxElement>> BeforeActions { get; }
+        public List<Func<RawFormatterContext, ISyntaxElement, bool>> BeforeActions { get; }
 
-        public List<Action<RawFormatterContext, ISyntaxElement>> AfterActions { get; }
+        public List<Func<RawFormatterContext, ISyntaxElement, bool>> AfterActions { get; }
 
         public async Task<string> Format(string source, Func<string, Task<string>> fileProvider, Action<string> progress)
         {
@@ -29,11 +31,12 @@ namespace NVerilogFormatter
                 {
                     var context = new RawFormatterContext()
                     {
-                        CurrentLevel = 0,
-                        DisableSpaces = false,
-                        IdentNode = null,
-                        Lines = new List<string> { "" }
+                        Lines = new List<RawFormatterLine>() { new RawFormatterLine() }
                     };
+
+                    // Set parents 
+                    var algorithm = new SetParentsVisitor();
+                    algorithm.Visit(result);
 
                     var before = (ISyntaxElement e) => {
                         foreach (var beforeAction in BeforeActions)
@@ -53,7 +56,10 @@ namespace NVerilogFormatter
                     var vistor = new CFGToolkit.AST.Algorithms.TreeVisitors.PreAndPostTreeVistor(before, after);
                     vistor.Visit(result);
 
-                    return String.Join(string.Empty, context.Lines);
+
+
+
+                    return String.Join(Environment.NewLine, context.Lines.Select(line => line.ToString()));
                 }
 
                 return "Problem wit formatting";
