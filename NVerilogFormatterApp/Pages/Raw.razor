@@ -4,9 +4,15 @@
 @using NVerilogFormatter
 @using BlazorWorker.BackgroundServiceFactory
 @inject IWorkerFactory workerFactory
+@inject NavigationManager Navigator
+
+<input type="checkbox" name="Include Disciplines" @bind="Disciplines" /> Include disciplines.vams (if it's not included in the source text)
+<br />
 
 <textarea id="Raw" @bind="RawText" @ref="RawRef" cols="150" rows="20">
 </textarea>
+
+
 <br />
 <br />
 <button class="btn btn-primary" @onclick="Format">Format</button>
@@ -24,12 +30,23 @@
     {
         public HttpClient HttpClient  { get; }
 
+        private string _baseUri;
+
         public IWorkerMessageService MessageService { get; }
 
         public FormatTask(HttpClient httpClient, IWorkerMessageService messageService)
         {
             HttpClient = httpClient;
             MessageService = messageService;
+            MessageService.IncomingMessage += OnWorkerMessage;
+        }
+
+        public void OnWorkerMessage(object sender, string message)
+        {
+            if (message.StartsWith($"BaseUrl:"))
+            {
+                _baseUri = message.Substring(8);
+            }
         }
 
         public async Task<string> Format(string rawText)
@@ -38,7 +55,7 @@
             Func<string, Task<string>> fileProvider = (string fileName) =>
             {
                 fileName = fileName.Trim('"');
-                return HttpClient.GetStringAsync($"https://localhost:44384/{fileName}");
+                return HttpClient.GetStringAsync($"{_baseUri + fileName}");
             };
 
             return await formatter.Format(rawText, fileProvider, (progress) => MessageService.PostMessageAsync("Progress:" + progress));
@@ -48,6 +65,7 @@
     string RawText = "";
     string FormattedText = "";
     string ProgressText = "0/0";
+    bool Disciplines = true;
 
 
     ElementReference RawRef;
@@ -79,11 +97,18 @@
                     .AddConventionalAssemblyOfService()
                     .AddHttpClient());
 
+
+        await worker.PostMessageAsync("BaseUrl:" + Navigator.BaseUri);
+
         // Reference that live outside of the current scope should not be passed into the expression.
         // To circumvent this, create a scope-local variable like this, and pass the local variable.
         var rawText = RawText;
 
-
+        if (Disciplines && !rawText.Contains("disciplines.vams"))
+        {
+            rawText = "`include \"disciplines.vams\"\r\n" + rawText;
+        }
+        FormattedText = "";
         FormattedText = await service.RunAsync(s => s.Format(rawText));
     }
 

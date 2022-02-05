@@ -43,29 +43,68 @@ namespace NVerilogFormatter
                 "par_block_optional",
                 "if_generate_construct"
             };
-            string[] noSpacesParents = new string[] { "branch_probe_function_call" };
+
+            (string, Func<SyntaxNode, bool>)[] noSpaceAfter = new (string, Func<SyntaxNode, bool>)[]
+            {
+                ("#", null),
+                ("!", null),
+                ("(", null),
+                (".", null),
+                ("@", null),
+                ("-", (token) => token.Parent.Name == "sign"),
+                ("+", (token) => token.Parent.Name == "sign"),
+                ("[", (token) => token.Parent.Name != "value_range")
+            };
+
+            (string, Func<SyntaxToken, bool>)[] removeSpaceBefore = new (string, Func<SyntaxToken, bool>)[]
+            {
+                (";", null),
+                (",", null),
+                ("(", (token) => 
+                    token.Parent.Name == "branch_probe_function_call" 
+                    || token.Parent.Name == "analog_filter_function_call" 
+                    || token.Parent.Name == "analog_event_functions"
+                    || token.Parent.Name == "analog_built_in_function_call"
+                    || HasParent(new string[] {"system_task_enable", "analog_system_task_enable"}, token)),
+                (")", null),
+                ("[", (token) => token.Parent.Name != "value_range"),
+                ("]", (token) => token.Parent.Name != "value_range")
+            };
+
 
             var beforeActions = new List<Func<RawFormatterContext, ISyntaxElement, bool>>();
 
             var identedNodes = new List<(string node, string idented, Func<SyntaxNode, bool> condition)>();
-            identedNodes.Add(("procedural_timing_control_statement", "statement_or_null", null));
+
+            
+            identedNodes.Add(("connectrules_declaration", "connectrules_item", null));
+            identedNodes.Add(("module_declaration", "module_item", null));
+            identedNodes.Add(("module_declaration", "non_port_module_item", (node) => { return node.Parent.Parent.Name == "module_declaration"; } ));
+
             identedNodes.Add(("nature_declaration", "nature_item", null));
             identedNodes.Add(("discipline_declaration", "discipline_item", null));
-            identedNodes.Add(("module_declaration", "module_item", null));
-            identedNodes.Add(("module_declaration", "non_port_module_item", null));
 
-            identedNodes.Add(("seq_block", "statement", null));
+            identedNodes.Add(("procedural_timing_control_statement", "statement_or_null", null));
+
+            identedNodes.Add(("initial_construct", "statement", null));
+            identedNodes.Add(("analog_construct", "analog_function_statement", null));
+            identedNodes.Add(("analog_construct", "analog_statement", null));
+            identedNodes.Add(("analog_event_control_statement", "analog_event_statement", null));
             identedNodes.Add(("analog_function_seq_block", "analog_function_statement", null));
             identedNodes.Add(("analog_event_seq_block", "analog_event_statement", null));
             identedNodes.Add(("analog_seq_block", "analog_statement", null));
+            identedNodes.Add(("analog_conditional_statement", "analog_statement_or_null", null));
+            identedNodes.Add(("analog_function_conditional_statement_else", "analog_statement_or_null", null));
 
             identedNodes.Add(("conditional_statement", "statement_or_null", null));
-            
-            identedNodes.Add(("analog_conditional_statement", "analog_statement_or_null", null));
+            identedNodes.Add(("conditional_statement_else", "statement_or_null", null));
+
+            identedNodes.Add(("seq_block", "statement", null));
+
             identedNodes.Add(("if_generate_construct", "generate_block_or_null", null));
             identedNodes.Add(("if_generate_construct_else", "generate_block_or_null", null));
             identedNodes.Add(("loop_generate_construct", "generate_block", null));
-            identedNodes.Add(("generate_block", "module_or_generate_item", (SyntaxNode node) => { return node.Children.Any(d => d is SyntaxToken t && t.Value == "begin"); }));
+            identedNodes.Add(("generate_block", "module_or_generate_item", (SyntaxNode node) => { return ((SyntaxNode)node.Parent.Parent).Children.Any(d => d is SyntaxToken t && t.Value == "begin"); }));
 
 
             var inNewLine = new List<string>();
@@ -93,21 +132,29 @@ namespace NVerilogFormatter
 
                     foreach (var definition in identedNodes.Where(item => item.node == node.Name))
                     {
-                        if (definition.condition != null)
+                        foreach (var nested in node.GetNodes(definition.idented, 4))
                         {
-                            if (!definition.condition(node))
+                            if (definition.condition != null)
                             {
-                                continue;
+                                if (!definition.condition(nested))
+                                {
+                                    continue;
+                                }
                             }
-                        }
-                        foreach (var i in node.GetNodes(definition.idented, 3))
-                        {
-                            if (!context.Indents.ContainsKey(i))
+
+                            if (!context.Indents.ContainsKey(nested))
                             {
-                                context.Indents[i] = 0;
+                                context.Indents[nested] = 0;
                             }
-                            context.Indents[i] = IdentStep;
+                            context.Indents[nested] = IdentStep;
                         }
+                    }
+
+                    var addSpaceBefore = GetNodeTokenize(node) && !noSpaceAfter.Any(str => context.CurrentLine.Text.EndsWith(str.Item1) && (str.Item2 == null || str.Item2(node)));
+
+                    if (addSpaceBefore)
+                    {
+                        AddSpace(context.CurrentLine);
                     }
                 }
 
@@ -115,30 +162,19 @@ namespace NVerilogFormatter
                 {
                     UpdateIdent(context, token.Parent, false);
 
-                    var addSpaces = new string[] { "/", "begin", "<+" };
+                    var addSpaceBefore = GetTokenTokenize(token.Parent as SyntaxNode)
+                        && !noSpaceAfter.Any(str => context.CurrentLine.Text.EndsWith(str.Item1) && (str.Item2 == null || str.Item2(token.Parent as SyntaxNode)));
 
-                    if (addSpaces.Contains(token.Value))
+                    if (addSpaceBefore)
                     {
-                        if (!context.CurrentLine.Text.EndsWith(" ") && !string.IsNullOrEmpty(context.CurrentLine.Text))
-                        {
-                            context.CurrentLine.Text += " ";
-                        }
+                        AddSpace(context.CurrentLine);
                     }
 
-                    if ((token.Value == "[" || token.Value == "]"))                     
-                    {
-                        if (token.Parent.Name != "value_range")
-                        {
-                            context.CurrentLine.Text = context.CurrentLine.Text.TrimEnd();
-                        }
+                    var action = removeSpaceBefore.FirstOrDefault(r => r.Item1 == token.Value);
 
-                        return true;
-                    }
-
-                    if (token.Value == ";" || token.Value == ",")
+                    if (action != default && (action.Item2 == null || action.Item2(token)))
                     {
                         context.CurrentLine.Text = context.CurrentLine.Text.TrimEnd();
-                        return true;
                     }
                 }
 
@@ -147,7 +183,6 @@ namespace NVerilogFormatter
 
             var afterActions = new List<Func<RawFormatterContext, ISyntaxElement, bool>>();
 
-           
             afterActions.Add((context, element) =>
             {
                 if (emptyLinesAfterNodes.Contains(element.Name))
@@ -158,14 +193,6 @@ namespace NVerilogFormatter
                 if (lineBreakAfterNodes.Contains(element.Name))
                 {
                     EnsureLines(context, element, 1);
-                }
-
-                if (element is SyntaxNode node)
-                {
-                    if (GetNodeTokenize(node) && !HasParent(noSpacesParents, node))
-                    {
-                        AddSpace(context.CurrentLine);
-                    }
                 }
 
                 if (element is SyntaxToken token)
@@ -205,15 +232,7 @@ namespace NVerilogFormatter
                         CreateNewLine(context, token);
                         return true;
                     }
-                    string[] addSpaces = new string[] { "if", "for", "<+" };
-
-                    var addSpaceAfterToken = !HasParent(noSpacesParents, token) && (GetTokenTokenize((SyntaxNode)token.Parent) || addSpaces.Contains(token.Value)) && (!context.CurrentLine.Text.EndsWith("[") || token.Parent.Name == "value_range");
-
-                    if (addSpaceAfterToken)
-                    {
-                        AddSpace(context.CurrentLine);
-                    }
-
+                
                     return true;
                 }
 
@@ -232,7 +251,6 @@ namespace NVerilogFormatter
                 {
                     return true;
                 }
-
                 tmp = tmp.Parent;
             }
 

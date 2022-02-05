@@ -34,10 +34,6 @@ namespace NVerilogFormatter
                         Lines = new List<RawFormatterLine>() { new RawFormatterLine() }
                     };
 
-                    // Set parents 
-                    var algorithm = new SetParentsVisitor();
-                    algorithm.Visit(result);
-
                     var before = (ISyntaxElement e) => {
                         foreach (var beforeAction in BeforeActions)
                         {
@@ -53,11 +49,8 @@ namespace NVerilogFormatter
                         }
                     };
 
-                    var vistor = new CFGToolkit.AST.Algorithms.TreeVisitors.PreAndPostTreeVistor(before, after);
+                    var vistor = new PreAndPostTreeVistor(before, after);
                     vistor.Visit(result);
-
-
-
 
                     return String.Join(Environment.NewLine, context.Lines.Select(line => line.ToString()));
                 }

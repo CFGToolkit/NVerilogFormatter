@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NVerilogParser" Version="1.0.0-xlocal-60" />
+    <PackageReference Include="NVerilogParser" Version="1.0.0-beta-07" />
   </ItemGroup>
 
 </Project>
