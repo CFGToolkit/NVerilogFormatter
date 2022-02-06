@@ -2,6 +2,7 @@
 @using BlazorWorker.Core
 @using BlazorWorker.WorkerCore
 @using NVerilogFormatter
+@using System.Diagnostics
 @using BlazorWorker.BackgroundServiceFactory
 @inject IWorkerFactory workerFactory
 @inject NavigationManager Navigator
@@ -9,20 +10,29 @@
 <input type="checkbox" name="Include Disciplines" @bind="Disciplines" /> Include disciplines.vams (if it's not included in the source text)
 <br />
 
-<textarea id="Raw" @bind="RawText" @ref="RawRef" cols="150" rows="20">
+<div>
+Input:<br />
+<textarea id="Raw" @bind="RawText" @ref="RawRef" cols="150" rows="15">
 </textarea>
+</div>
 
-
-<br />
-<br />
+<div>
 <button class="btn btn-primary" @onclick="Format">Format</button>
+</div>
 <br />
-<input id="Progress" @bind="ProgressText" />
+<div>
+Progress: <input id="Progress" @bind="ProgressText"  /> characters
 <br />
+<br />
+Execution time: <input type="ExecutionTime" @bind="ExectionTime" /> seconds
+</div>
 
-<textarea id="Formatted" @bind="FormattedText" @ref="FormattedRef" cols="150" rows="20">
-</textarea>
 <br />
+<div>
+ Result: <br />
+<textarea id="Formatted" @bind="FormattedText" @ref="FormattedRef" cols="150" rows="15">
+</textarea>
+</div>
 
 
 @code {
@@ -65,6 +75,7 @@
     string RawText = "";
     string FormattedText = "";
     string ProgressText = "0/0";
+    string ExectionTime = "";
     bool Disciplines = true;
 
 
@@ -109,7 +120,13 @@
             rawText = "`include \"disciplines.vams\"\r\n" + rawText;
         }
         FormattedText = "";
+
+        Stopwatch watch = new Stopwatch();
+        watch.Start();
         FormattedText = await service.RunAsync(s => s.Format(rawText));
+        watch.Stop();
+
+        ExectionTime = watch.Elapsed.TotalSeconds.ToString();
     }
 
     private void Update(string progress)
@@ -121,7 +138,7 @@
     {
         if (message.StartsWith($"Progress:"))
         {
-            Update(message);
+            Update(message.Substring(9));
             StateHasChanged();
         }
     }
