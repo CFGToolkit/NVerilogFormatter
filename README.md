@@ -5,4 +5,4 @@ A library to format/indent/beautify Verilog-AMS source code
 
 https://cfgtoolkit.github.io/NVerilogFormatter/
 
-![Animation](https://user-images.githubusercontent.com/115426/152654361-71b56907-b46c-436b-8e42-2ce3bfd6e588.gif)
+![animation2](https://user-images.githubusercontent.com/115426/152686279-866dadfc-e476-4e55-82be-6444489c79ed.gif)
