@@ -1,6 +1,5 @@
 ﻿using CFGToolkit.AST;
 using CFGToolkit.AST.Algorithms.TreeVisitors;
-using CFGToolkit.AST.Providers;
 
 namespace NVerilogFormatter
 {
@@ -34,7 +33,7 @@ namespace NVerilogFormatter
                         Lines = new List<RawFormatterLine>() { new RawFormatterLine() }
                     };
 
-                    var before = (ISyntaxElement e) => {
+                    var before = (ISyntaxElement e, int depth) => {
                         foreach (var beforeAction in BeforeActions)
                         {
                             beforeAction(context, e);
@@ -42,7 +41,7 @@ namespace NVerilogFormatter
                         return true;
                     };
 
-                    var after = (ISyntaxElement e) => {
+                    var after = (ISyntaxElement e, int depth) => {
                         foreach (var afterAction in AfterActions)
                         {
                             afterAction(context, e);
@@ -50,7 +49,7 @@ namespace NVerilogFormatter
                     };
 
                     var vistor = new PreAndPostTreeVistor(before, after);
-                    vistor.Visit(result);
+                    vistor.Visit(result, 0);
 
                     return String.Join(Environment.NewLine, context.Lines.Select(line => line.ToString()));
                 }
