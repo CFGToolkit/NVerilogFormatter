@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorCacheBootResources>false</BlazorCacheBootResources>
     <PublishTrimmed>false</PublishTrimmed>
-    <RunAOTCompilation>true</RunAOTCompilation>
   </PropertyGroup>
 
   <ItemGroup>

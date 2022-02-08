@@ -77,6 +77,7 @@ Execution time: <input type="ExecutionTime" @bind="ExectionTime" /> seconds
     string ProgressText = "0/0";
     string ExectionTime = "";
     bool Disciplines = true;
+    int counter = 0;
 
 
     ElementReference RawRef;
@@ -138,8 +139,11 @@ Execution time: <input type="ExecutionTime" @bind="ExectionTime" /> seconds
     {
         if (message.StartsWith($"Progress:"))
         {
-            Update(message.Substring(9));
-            StateHasChanged();
+            if (counter++ % 10 == 0)
+            {
+                Update(message.Substring(9));
+                StateHasChanged();
+            }
         }
     }
 }
